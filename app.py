@@ -24,6 +24,17 @@ except ImportError:
     OLLAMA_AVAILABLE = False
 
 try:
+    from utils.openai_compatible_integration import (
+        check_openai_compatible_available,
+        list_available_models as list_openai_compatible_models,
+        chunk_and_summarize as openai_chunk_and_summarize,
+        stream_chunk_and_summarize as openai_stream_chunk_and_summarize,
+    )
+    OPENAI_COMPAT_AVAILABLE = check_openai_compatible_available()
+except ImportError:
+    OPENAI_COMPAT_AVAILABLE = False
+
+try:
     from utils.gpu_utils import get_gpu_info, configure_gpu, optimize_for_inference
     GPU_UTILS_AVAILABLE = True
     optimize_for_inference()
@@ -124,16 +135,18 @@ def render_sidebar():
                 "**medium** or smaller, or enable GPU acceleration."
             )
 
-        summarization_options = (
-            ["Hugging Face (Online)", "Ollama (Local)"]
-            if OLLAMA_AVAILABLE
-            else ["Hugging Face (Online)"]
-        )
+        summarization_options = ["Hugging Face (Online)"]
+        if OLLAMA_AVAILABLE:
+            summarization_options.append("Ollama (Local)")
+        if OPENAI_COMPAT_AVAILABLE:
+            summarization_options.append("Local LLM (OpenAI-compatible)")
         st.session_state.summarization_method = st.selectbox(
             "Summarization",
             summarization_options,
             index=0,
-            help="Ollama runs locally but requires installation.",
+            help="Ollama runs locally but requires installation. "
+                 "OpenAI-compatible covers llama.cpp/LM Studio/vLLM/Strata "
+                 "servers via OPENAI_COMPAT_BASE_URL.",
             key="sb_summarization",
         )
 
@@ -149,6 +162,23 @@ def render_sidebar():
                 )
             else:
                 st.warning("No Ollama models found. Run `ollama pull <model>`.")
+
+        openai_model = None
+        if (OPENAI_COMPAT_AVAILABLE
+                and st.session_state.summarization_method == "Local LLM (OpenAI-compatible)"):
+            openai_models = list_openai_compatible_models()
+            if openai_models:
+                openai_model = st.selectbox(
+                    "Local LLM Model",
+                    openai_models,
+                    index=0,
+                    key="sb_openai_model",
+                )
+            else:
+                st.warning(
+                    "No models found at the OpenAI-compatible endpoint. "
+                    "Check OPENAI_COMPAT_BASE_URL / OPENAI_COMPAT_API_KEY."
+                )
 
     # -- Advanced Features (collapsed) --
     with st.sidebar.expander("Advanced Features"):
@@ -303,10 +333,12 @@ def render_sidebar():
         if caps["gpu_name"]:
             st.markdown(f"- **GPU:** {caps['gpu_name']} ({humanize.naturalsize(caps['gpu_memory'])})")
         st.markdown(f"- **Ollama:** {'Connected' if OLLAMA_AVAILABLE else 'Not available'}")
+        st.markdown(f"- **Local LLM:** {'Connected' if OPENAI_COMPAT_AVAILABLE else 'Not available'}")
         st.markdown(f"- **Diarization:** {'Ready' if DIARIZATION_AVAILABLE else 'Not available'}")
 
     return {
         "ollama_model": ollama_model,
+        "openai_model": openai_model,
         "hf_token": hf_token,
         "num_speakers": num_speakers,
         "target_lang": target_lang,
@@ -487,6 +519,11 @@ def process_recording(file_path, sidebar_opts):
                 and st.session_state.summarization_method == "Ollama (Local)"
                 and sidebar_opts["ollama_model"]
             )
+            use_openai_compat = (
+                OPENAI_COMPAT_AVAILABLE
+                and st.session_state.summarization_method == "Local LLM (OpenAI-compatible)"
+                and sidebar_opts["openai_model"]
+            )
 
             if use_ollama:
                 summary = chunk_and_summarize(transcript, model=sidebar_opts["ollama_model"])
@@ -498,6 +535,18 @@ def process_recording(file_path, sidebar_opts):
                         memory_fraction=st.session_state.memory_fraction,
                     )
                 results["ollama_streaming"] = True
+            elif use_openai_compat:
+                summary = openai_chunk_and_summarize(
+                    transcript, model=sidebar_opts["openai_model"]
+                )
+                if not summary:
+                    st.write("Local LLM failed, falling back to Hugging Face...")
+                    summary = summarize_text(
+                        transcript,
+                        use_gpu=st.session_state.use_gpu,
+                        memory_fraction=st.session_state.memory_fraction,
+                    )
+                results["openai_streaming"] = True
             else:
                 summary = summarize_text(
                     transcript,
@@ -564,6 +613,16 @@ def render_results(results, sidebar_opts):
                         stream_chunk_and_summarize(
                             results["transcript"],
                             model=sidebar_opts["ollama_model"],
+                        )
+                    )
+        elif results.get("openai_streaming") and OPENAI_COMPAT_AVAILABLE and sidebar_opts.get("openai_model"):
+            st.write(results["summary"])
+            with st.expander("Re-generate with streaming"):
+                if st.button("Stream Summary", key="stream_btn"):
+                    st.write_stream(
+                        openai_stream_chunk_and_summarize(
+                            results["transcript"],
+                            model=sidebar_opts["openai_model"],
                         )
                     )
         else:

@@ -38,6 +38,10 @@ ffmpeg-python>=0.2.0
 # Optional: Ollama Python client (uncomment to install)
 # ollama
 
+# .env support for OpenAI-compatible local LLM config
+# (OPENAI_COMPAT_BASE_URL / OPENAI_COMPAT_API_KEY)
+python-dotenv>=1.0.0
+
 # Installation notes:
 # 1. For Windows users, you may need to install PyTorch separately:
 #    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118

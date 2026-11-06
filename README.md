@@ -134,6 +134,20 @@ streamlit run app.py
   - Add support for custom Ollama model creation with specific instructions
   - Implement parallel processing for multiple chunks
 
+### 2b. Local LLM (OpenAI-compatible Endpoint)
+- **Implemented:**
+  - Summarization against any OpenAI-compatible local server
+    (llama.cpp server, LM Studio, vLLM, Strata, ...)
+  - Select it in the sidebar as **Local LLM (OpenAI-compatible)**;
+    models are listed from the server's `/v1/models` endpoint
+  - Configuration via environment variables or a `.env` file in the
+    project root (see [.env.example](.env.example)):
+    - `OPENAI_COMPAT_BASE_URL` - server base URL including `/v1`
+      (default: `http://127.0.0.1:8080/v1`)
+    - `OPENAI_COMPAT_API_KEY` - bearer token, optional
+  - Streaming support and reasoning-model output handling
+  - Fallback to Hugging Face when the local server fails
+
 ### 3. Subtitle Export Formats
 - **Implemented:**
   - SRT export with proper formatting
